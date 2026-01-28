@@ -73,7 +73,9 @@ impl FusedMoe {
             let (n, k, intermediate_size) = activated.dims3()?;
             let activated_flat = activated.reshape((n * k, 1, intermediate_size))?;
             let indices_flat = indices.reshape((n * k, 1))?;
-            let down_output = self.down_experts.gather_forward(&activated_flat, &indices_flat)?;
+            let down_output = self
+                .down_experts
+                .gather_forward(&activated_flat, &indices_flat)?;
             // down_output is [n*k, 1, hidden_dim], reshape back to [n, k, hidden_dim]
             down_output.reshape((n, k, ()))?
         };
