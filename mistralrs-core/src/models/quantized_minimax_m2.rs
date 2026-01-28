@@ -24,9 +24,10 @@ const DEFAULT_MAX_SEQ_LEN: u32 = 4096;
 
 struct FusedMoe {
     gate: QMatMul,
-    gate_experts: QMatMul,
-    up_experts: QMatMul,
-    down_experts: QMatMul,
+    // Use GgufMatMul wrapper for CPU/Metal support via gather_forward
+    gate_experts: Arc<dyn QuantMethod>,
+    up_experts: Arc<dyn QuantMethod>,
+    down_experts: Arc<dyn QuantMethod>,
     routing_bias: Option<Tensor>,
     norm_topk_prob: bool,
     num_experts_per_tok: usize,
@@ -60,11 +61,11 @@ impl FusedMoe {
 
         let ys = {
             let xs = xs.reshape((num_tokens, 1, hidden_dim))?;
-            let gate = self.gate_experts.indexed_moe_forward(&xs, &indices)?;
-            let up = self.up_experts.indexed_moe_forward(&xs, &indices)?;
+            // Use gather_forward for CPU/Metal compatibility (has fallback implementation)
+            let gate = self.gate_experts.gather_forward(&xs, &indices)?;
+            let up = self.up_experts.gather_forward(&xs, &indices)?;
             let activated = crate::ops::mul_and_act(&gate, &up, crate::layers::Activation::Silu)?;
-            self.down_experts
-                .indexed_moe_forward(&activated, &indices)?
+            self.down_experts.gather_forward(&activated, &indices)?
         };
         ys.broadcast_mul(&scores.unsqueeze(D::Minus1)?)?
             .sum(D::Minus2)?
@@ -375,9 +376,19 @@ impl ModelConfig::FromGGUF for ModelWeights {
 
             let moe = FusedMoe {
                 gate: QMatMul::from_qtensor(gate)?,
-                gate_experts: QMatMul::from_qtensor(gate_experts)?,
-                up_experts: QMatMul::from_qtensor(up_experts)?,
-                down_experts: QMatMul::from_qtensor(down_experts)?,
+                // Wrap in GgufMatMul for CPU/Metal gather_forward support
+                gate_experts: Arc::new(GgufMatMul::new(QuantMethodConfig::Gguf {
+                    q_weight: Arc::new(gate_experts),
+                    b: None,
+                })?),
+                up_experts: Arc::new(GgufMatMul::new(QuantMethodConfig::Gguf {
+                    q_weight: Arc::new(up_experts),
+                    b: None,
+                })?),
+                down_experts: Arc::new(GgufMatMul::new(QuantMethodConfig::Gguf {
+                    q_weight: Arc::new(down_experts),
+                    b: None,
+                })?),
                 routing_bias,
                 norm_topk_prob: moe_cfg.norm_topk_prob,
                 num_experts_per_tok: moe_cfg.num_experts_per_tok,
