@@ -62,10 +62,20 @@ impl FusedMoe {
         let ys = {
             let xs = xs.reshape((num_tokens, 1, hidden_dim))?;
             // Use gather_forward for CPU/Metal compatibility (has fallback implementation)
+            // gate/up: input [n, 1, hidden] → output [n, k, intermediate]
             let gate = self.gate_experts.gather_forward(&xs, &indices)?;
             let up = self.up_experts.gather_forward(&xs, &indices)?;
             let activated = crate::ops::mul_and_act(&gate, &up, crate::layers::Activation::Silu)?;
-            self.down_experts.gather_forward(&activated, &indices)?
+
+            // down expert needs special handling because input is [n, k, intermediate]
+            // but gather_forward only supports [n, 1, x] input
+            // Reshape to treat each (token, expert_slot) as a separate "token"
+            let (n, k, intermediate_size) = activated.dims3()?;
+            let activated_flat = activated.reshape((n * k, 1, intermediate_size))?;
+            let indices_flat = indices.reshape((n * k, 1))?;
+            let down_output = self.down_experts.gather_forward(&activated_flat, &indices_flat)?;
+            // down_output is [n*k, 1, hidden_dim], reshape back to [n, k, hidden_dim]
+            down_output.reshape((n, k, ()))?
         };
         ys.broadcast_mul(&scores.unsqueeze(D::Minus1)?)?
             .sum(D::Minus2)?
