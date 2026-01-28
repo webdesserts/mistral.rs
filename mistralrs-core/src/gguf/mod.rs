@@ -29,6 +29,8 @@ pub enum GGUFArchitecture {
     Qwen2,
     Qwen3,
     Qwen3MoE,
+    #[strum(serialize = "minimax-m2")]
+    MinimaxM2,
 }
 
 // Wraps from_str() for some convenience:
