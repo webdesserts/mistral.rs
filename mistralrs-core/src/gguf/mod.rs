@@ -43,3 +43,23 @@ impl GGUFArchitecture {
             .map_err(anyhow::Error::msg)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_minimax_m2_architecture_parsing() {
+        // Test the exact GGUF architecture string (with hyphen)
+        let arch = GGUFArchitecture::from_value("minimax-m2").unwrap();
+        assert!(matches!(arch, GGUFArchitecture::MinimaxM2));
+
+        // Test case insensitivity
+        let arch = GGUFArchitecture::from_value("MINIMAX-M2").unwrap();
+        assert!(matches!(arch, GGUFArchitecture::MinimaxM2));
+
+        // Test display round-trip
+        let arch = GGUFArchitecture::MinimaxM2;
+        assert_eq!(arch.to_string(), "minimax-m2");
+    }
+}

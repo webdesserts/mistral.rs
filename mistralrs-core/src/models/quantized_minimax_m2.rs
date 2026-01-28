@@ -62,8 +62,7 @@ impl FusedMoe {
             let xs = xs.reshape((num_tokens, 1, hidden_dim))?;
             let gate = self.gate_experts.indexed_moe_forward(&xs, &indices)?;
             let up = self.up_experts.indexed_moe_forward(&xs, &indices)?;
-            let activated =
-                crate::ops::mul_and_act(&gate, &up, crate::layers::Activation::Silu)?;
+            let activated = crate::ops::mul_and_act(&gate, &up, crate::layers::Activation::Silu)?;
             self.down_experts
                 .indexed_moe_forward(&activated, &indices)?
         };
@@ -188,6 +187,7 @@ pub struct ModelWeights {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MinimaxM2MoEConfig {
     pub moe_intermediate_size: usize,
     pub num_experts: usize,
