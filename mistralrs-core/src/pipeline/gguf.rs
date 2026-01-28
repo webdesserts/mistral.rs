@@ -38,6 +38,7 @@ use crate::{
 };
 use crate::{
     models::quantized_llama::ModelWeights as QLlama,
+    models::quantized_minimax_m2::ModelWeights as QMinimaxM2,
     models::quantized_phi2::ModelWeights as QPhi,
     models::quantized_phi3::ModelWeights as QPhi3,
     models::quantized_qwen::ModelWeights as QQwen,
@@ -64,6 +65,7 @@ use tracing::{info, warn};
 
 enum Model {
     Llama(QLlama),
+    MinimaxM2(QMinimaxM2),
     Phi2(QPhi),
     XLoraLlama(XLoraQLlama),
     XLoraPhi3(XLoraQPhi3),
@@ -466,6 +468,9 @@ impl Loader for GGUFLoader {
         let model = match self.kind {
             ModelKind::GgufQuantized { .. } => match arch {
                 GGUFArchitecture::Llama => Model::Llama(QLlama::try_from(model_config)?),
+                GGUFArchitecture::MinimaxM2 => {
+                    Model::MinimaxM2(QMinimaxM2::try_from(model_config)?)
+                }
                 GGUFArchitecture::Phi2 => Model::Phi2(QPhi::try_from(model_config)?),
                 GGUFArchitecture::Phi3 => Model::Phi3(QPhi3::try_from(model_config)?),
                 GGUFArchitecture::Starcoder2 => {
@@ -528,6 +533,7 @@ impl Loader for GGUFLoader {
 
         let max_seq_len = match model {
             Model::Llama(ref l) => l.max_seq_len,
+            Model::MinimaxM2(ref m) => m.max_seq_len,
             Model::Phi2(ref p) => p.max_seq_len,
             Model::XLoraLlama(ref xl) => xl.max_seq_len,
             Model::Phi3(ref p) => p.max_seq_len,
@@ -540,6 +546,7 @@ impl Loader for GGUFLoader {
         let llg_factory = build_llg_factory(tokenizer.clone())?;
         let num_hidden_layers = match model {
             Model::Llama(ref model) => model.cache.normal().0.len(),
+            Model::MinimaxM2(ref model) => model.cache.normal().0.len(),
             Model::Phi2(ref model) => model.cache.normal().0.len(),
             Model::XLoraLlama(ref model) => model.cache.full().lock().len(),
             Model::Phi3(ref model) => model.cache.normal().0.len(),
@@ -673,6 +680,7 @@ impl CacheManagerMixin for GGUFPipeline {
     fn cache(&self) -> &EitherCache {
         match self.model {
             Model::Llama(ref model) => &model.cache,
+            Model::MinimaxM2(ref model) => &model.cache,
             Model::Phi2(ref model) => &model.cache,
             Model::XLoraLlama(ref model) => &model.cache,
             Model::Phi3(ref model) => &model.cache,
@@ -689,6 +697,7 @@ impl MetadataMixin for GGUFPipeline {
     fn device(&self) -> Device {
         match self.model {
             Model::Llama(ref model) => model.device.clone(),
+            Model::MinimaxM2(ref model) => model.device.clone(),
             Model::Phi2(ref model) => model.device.clone(),
             Model::XLoraLlama(ref model) => model.device.clone(),
             Model::Phi3(ref model) => model.device.clone(),
@@ -752,6 +761,9 @@ impl Pipeline for GGUFPipeline {
         };
         let logits = match self.model {
             Model::Llama(ref model) => {
+                model.forward(&input_ids, &seqlen_offsets, context_lens, paged_attn_meta)?
+            }
+            Model::MinimaxM2(ref model) => {
                 model.forward(&input_ids, &seqlen_offsets, context_lens, paged_attn_meta)?
             }
             Model::Phi2(ref model) => {
