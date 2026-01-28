@@ -107,6 +107,11 @@ impl LayerWeights {
         let k = MatMul.qmethod_matmul(x, &*self.attention_wk)?;
         let v = MatMul.qmethod_matmul(x, &*self.attention_wv)?;
 
+        // MiniMax applies QK norm BEFORE reshaping to heads
+        // q_norm: [n_head * head_dim] = [6144], k_norm: [n_kv_head * head_dim] = [1024]
+        let q = self.q_norm.forward(&q)?;
+        let k = self.k_norm.forward(&k)?;
+
         let (q, k, v) = if seq_len != 1 {
             let q = q
                 .reshape((b_sz, seq_len, self.n_head, self.head_dim))?
@@ -124,14 +129,6 @@ impl LayerWeights {
             let v = v.reshape((b_sz, self.n_kv_head, seq_len, self.head_dim))?;
             (q, k, v)
         };
-
-        // MiniMax uses shared QK normalization (same pattern as Qwen3)
-        let q_flat = q.flatten(0, 2)?;
-        let k_flat = k.flatten(0, 2)?;
-        let q_flat = self.q_norm.forward(&q_flat)?;
-        let k_flat = self.k_norm.forward(&k_flat)?;
-        let q = q_flat.reshape((b_sz, self.n_head, seq_len, self.head_dim))?;
-        let k = k_flat.reshape((b_sz, self.n_kv_head, seq_len, self.head_dim))?;
 
         let (q, k) = self.rotary.forward(&q, &k, start_offsets)?;
 
